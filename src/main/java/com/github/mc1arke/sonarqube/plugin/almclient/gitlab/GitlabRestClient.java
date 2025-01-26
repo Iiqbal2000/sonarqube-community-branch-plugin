@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Michael Clarke
+ * Copyright (C) 2021-2024 Michael Clarke
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -19,7 +19,6 @@
 package com.github.mc1arke.sonarqube.plugin.almclient.gitlab;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.mc1arke.sonarqube.plugin.almclient.LinkHeaderReader;
 import com.github.mc1arke.sonarqube.plugin.almclient.gitlab.model.Commit;
 import com.github.mc1arke.sonarqube.plugin.almclient.gitlab.model.CommitNote;
 import com.github.mc1arke.sonarqube.plugin.almclient.gitlab.model.Discussion;
@@ -31,6 +30,7 @@ import com.github.mc1arke.sonarqube.plugin.almclient.gitlab.model.User;
 import org.apache.http.HttpResponse;
 import org.apache.http.NameValuePair;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
+import org.apache.http.client.methods.HttpDelete;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpPut;
@@ -39,8 +39,8 @@ import org.apache.http.entity.ContentType;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
-import org.sonar.api.utils.log.Logger;
-import org.sonar.api.utils.log.Loggers;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URLEncoder;
@@ -55,7 +55,7 @@ import java.util.function.Supplier;
 
 class GitlabRestClient implements GitlabClient {
 
-    private static final Logger LOGGER = Loggers.get(GitlabRestClient.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(GitlabRestClient.class);
 
     private final String baseGitlabApiUrl;
     private final String authToken;
@@ -135,6 +135,14 @@ class GitlabRestClient implements GitlabClient {
     }
 
     @Override
+    public void deleteMergeRequestDiscussionNote(long projectId, long mergeRequestIid, String discussionId, long noteId) throws IOException {
+        String discussionIdUrl = String.format("%s/projects/%s/merge_requests/%s/discussions/%s/notes/%s", baseGitlabApiUrl, projectId, mergeRequestIid, discussionId, noteId);
+
+        HttpDelete httpDelete = new HttpDelete(discussionIdUrl);
+        entity(httpDelete, null, x -> validateResponse(x, 204, "Commit discussions note deleted"));
+    }
+
+    @Override
     public void setMergeRequestPipelineStatus(long projectId, String commitRevision, PipelineStatus status) throws IOException {
         List<NameValuePair> entityFields = new ArrayList<>(Arrays.asList(
                 new BasicNameValuePair("name", status.getPipelineName()),
@@ -211,24 +219,23 @@ class GitlabRestClient implements GitlabClient {
 
     private static void validateResponse(HttpResponse httpResponse, int expectedStatus, String successLogMessage) {
         if (httpResponse.getStatusLine().getStatusCode() == expectedStatus) {
-            LOGGER.debug(Optional.ofNullable(successLogMessage).map(v -> v + System.lineSeparator()).orElse("") + httpResponse);
+            LOGGER.atDebug().setMessage(() -> Optional.ofNullable(successLogMessage).map(v -> v + System.lineSeparator()).orElse("") + httpResponse).log();
             return;
         }
-
-        String responseContent = Optional.ofNullable(httpResponse.getEntity()).map(entity -> {
-            try {
-                return EntityUtils.toString(entity, StandardCharsets.UTF_8);
-            } catch (IOException ex) {
-                LOGGER.warn("Could not decode response entity", ex);
-                return "";
-            }
-        }).orElse("");
-
-        LOGGER.error("Gitlab response status did not match expected value. Expected: " + expectedStatus
-                + System.lineSeparator()
-                + httpResponse
-                + System.lineSeparator()
-                + responseContent);
+        LOGGER.atError().setMessage("Gitlab response status did not match expected value. Expected: {}{}{}{}{}")
+                .addArgument(expectedStatus)
+                .addArgument(System::lineSeparator)
+                .addArgument(httpResponse)
+                .addArgument(System::lineSeparator)
+                .addArgument(() -> Optional.ofNullable(httpResponse.getEntity()).map(entity -> {
+                    try {
+                        return EntityUtils.toString(entity, StandardCharsets.UTF_8);
+                    } catch (IOException ex) {
+                        LOGGER.warn("Could not decode response entity", ex);
+                        return "";
+                    }
+                }).orElse(""))
+                .log();
 
         throw new IllegalStateException("An unexpected response code was returned from the Gitlab API - Expected: " + expectedStatus + ", Got: " + httpResponse.getStatusLine().getStatusCode());
 

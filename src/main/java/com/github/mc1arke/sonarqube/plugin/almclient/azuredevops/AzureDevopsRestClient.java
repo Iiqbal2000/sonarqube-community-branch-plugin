@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Michael Clarke
+ * Copyright (C) 2021-2024 Michael Clarke
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -23,6 +23,7 @@ import com.github.mc1arke.sonarqube.plugin.almclient.azuredevops.model.CommentTh
 import com.github.mc1arke.sonarqube.plugin.almclient.azuredevops.model.CommentThreadResponse;
 import com.github.mc1arke.sonarqube.plugin.almclient.azuredevops.model.Commit;
 import com.github.mc1arke.sonarqube.plugin.almclient.azuredevops.model.Commits;
+import com.github.mc1arke.sonarqube.plugin.almclient.azuredevops.model.ConnectionData;
 import com.github.mc1arke.sonarqube.plugin.almclient.azuredevops.model.CreateCommentRequest;
 import com.github.mc1arke.sonarqube.plugin.almclient.azuredevops.model.CreateCommentThreadRequest;
 import com.github.mc1arke.sonarqube.plugin.almclient.azuredevops.model.GitPullRequestStatus;
@@ -36,8 +37,8 @@ import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.util.EntityUtils;
-import org.sonar.api.utils.log.Logger;
-import org.sonar.api.utils.log.Loggers;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URLEncoder;
@@ -49,7 +50,7 @@ import java.util.function.Supplier;
 
 public class AzureDevopsRestClient implements AzureDevopsClient {
 
-    private static final Logger LOGGER = Loggers.get(AzureDevopsRestClient.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(AzureDevopsRestClient.class);
     private static final String API_VERSION = "4.1";
     private static final String API_VERSION_PREVIEW = API_VERSION + "-preview";
 
@@ -105,6 +106,13 @@ public class AzureDevopsRestClient implements AzureDevopsClient {
     }
 
     @Override
+    public void deletePullRequestThreadComment(String projectId, String repositoryName, int pullRequestId, int threadId, int commentId) throws IOException {
+        String url = String.format("%s/%s/_apis/git/repositories/%s/pullRequests/%s/threads/%s/comments/%s?api-version=%s", apiUrl, encode(projectId), encode(repositoryName), pullRequestId, threadId, commentId, API_VERSION);
+
+        execute(url, "delete", null, null);
+    }
+
+    @Override
     public PullRequest retrievePullRequest(String projectId, String repositoryName, int pullRequestId) throws IOException {
         String url = String.format("%s/%s/_apis/git/repositories/%s/pullRequests/%s?api-version=%s", apiUrl, encode(projectId), encode(repositoryName), pullRequestId, API_VERSION);
         return execute(url, "get", null, PullRequest.class);
@@ -114,6 +122,12 @@ public class AzureDevopsRestClient implements AzureDevopsClient {
     public List<Commit> getPullRequestCommits(String projectId, String repositoryName, int pullRequestId) throws IOException {
         String url = String.format("%s/%s/_apis/git/repositories/%s/pullRequests/%s/commits?api-version=%s", apiUrl, encode(projectId), encode(repositoryName), pullRequestId, API_VERSION);
         return Objects.requireNonNull(execute(url, "get", null, Commits.class)).getValue();
+    }
+
+    @Override
+    public ConnectionData getConnectionData() throws IOException {
+        String url = String.format("%s/_apis/ConnectionData?api-version=%s", apiUrl, API_VERSION_PREVIEW);
+        return Objects.requireNonNull(execute(url, "get", null, ConnectionData.class));
     }
 
 
@@ -143,21 +157,20 @@ public class AzureDevopsRestClient implements AzureDevopsClient {
             return;
         }
 
-        String responseContent = Optional.ofNullable(httpResponse.getEntity()).map(entity -> {
-            try {
-                return EntityUtils.toString(entity, StandardCharsets.UTF_8);
-            } catch (IOException ex) {
-                LOGGER.warn("Could not decode response entity", ex);
-                return "";
-            }
-        }).orElse("");
+        LOGGER.atError().setMessage("Azure Devops response status did not match expected value. Expected: 200 {}{}{}{}")
+                .addArgument(System::lineSeparator)
+                .addArgument(httpResponse::getStatusLine)
+                .addArgument(System::lineSeparator)
+                .addArgument(() -> Optional.ofNullable(httpResponse.getEntity()).map(entity -> {
+                    try {
+                        return EntityUtils.toString(entity, StandardCharsets.UTF_8);
+                    } catch (IOException ex) {
+                        LOGGER.warn("Could not decode response entity", ex);
+                        return "";
+                    }
+                }).orElse(""))
+                .log();
 
-
-        LOGGER.error("Azure Devops response status did not match expected value. Expected: 200"
-                + System.lineSeparator()
-                + httpResponse.getStatusLine().toString()
-                + System.lineSeparator()
-                + responseContent);
 
         throw new IllegalStateException("An unexpected response code was returned from the Azure Devops API - Expected: 200, Got: " + httpResponse.getStatusLine().getStatusCode());
     }

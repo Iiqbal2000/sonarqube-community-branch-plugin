@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2022 Marvin Wichmann, Michael Clarke
+ * Copyright (C) 2020-2024 Marvin Wichmann, Michael Clarke
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -19,9 +19,11 @@
 package com.github.mc1arke.sonarqube.plugin.almclient.bitbucket;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.AnnotationUploadLimit;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.BitbucketConfiguration;
+import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.BuildStatus;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.CodeInsightsAnnotation;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.CodeInsightsReport;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.DataValue;
@@ -35,8 +37,8 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
-import org.sonar.api.utils.log.Logger;
-import org.sonar.api.utils.log.Loggers;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -52,7 +54,7 @@ import static java.lang.String.format;
 
 class BitbucketCloudClient implements BitbucketClient {
 
-    private static final Logger LOGGER = Loggers.get(BitbucketCloudClient.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(BitbucketCloudClient.class);
     private static final MediaType APPLICATION_JSON_MEDIA_TYPE = MediaType.get("application/json");
     private static final String TITLE = "SonarQube";
     private static final String REPORTER = "SonarQube";
@@ -133,7 +135,14 @@ class BitbucketCloudClient implements BitbucketClient {
                 .build();
 
         LOGGER.info("Creating annotations on bitbucket cloud");
-        LOGGER.debug("Create annotations: " + objectMapper.writeValueAsString(annotations));
+        LOGGER.atDebug().setMessage("Create annotations: {}").addArgument(() -> {
+            try {
+                return objectMapper.writeValueAsString(annotations);
+            } catch (JsonProcessingException e) {
+                return "An error occurred whilst converting annotations to JSON: " + e.getClass().getName() + ": " + e.getMessage();
+            }
+        }).log();
+
 
         try (Response response = okHttpClient.newCall(req).execute()) {
             validate(response);
@@ -156,8 +165,8 @@ class BitbucketCloudClient implements BitbucketClient {
                 .url(targetUrl)
                 .build();
 
-        LOGGER.info("Create report on bitbucket cloud: " + targetUrl);
-        LOGGER.debug("Create report: " + body);
+        LOGGER.info("Create report on bitbucket cloud: {}", targetUrl);
+        LOGGER.debug("Create report: {}", body);
 
         try (Response response = okHttpClient.newCall(req).execute()) {
             validate(response);
@@ -187,6 +196,20 @@ class BitbucketCloudClient implements BitbucketClient {
                     .readValue(Optional.ofNullable(response.body())
                             .orElseThrow(() -> new IllegalStateException("No response body from BitBucket"))
                             .string());
+        }
+    }
+
+    @Override
+    public void submitBuildStatus(String commitSha, BuildStatus buildStatus) throws IOException {
+        Request req = new Request.Builder()
+                .post(RequestBody.create(objectMapper.writeValueAsString(buildStatus), APPLICATION_JSON_MEDIA_TYPE))
+                .url(format("https://api.bitbucket.org/2.0/repositories/%s/%s/commit/%s/statuses/build", bitbucketConfiguration.getProject(), bitbucketConfiguration.getRepository(), commitSha))
+                .build();
+
+        LOGGER.info("Submitting build status to bitbucket cloud");
+
+        try (Response response = okHttpClient.newCall(req).execute()) {
+            validate(response);
         }
     }
 

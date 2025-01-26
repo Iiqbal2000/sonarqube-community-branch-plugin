@@ -21,19 +21,15 @@ SonarQube branch features being untested.
 
 Use the following table to find the correct plugin version for each SonarQube version
 
-SonarQube Version | Plugin Version
-------------------|---------------
-9.8+              | 1.14.0
-9.7               | 1.13.0
-9.1 - 9.6         | 1.12.0
-9.0               | 1.9.0
-8.9               | 1.8.3
-8.7 - 8.8         | 1.7.0
-8.5 - 8.6         | 1.6.0
-8.2 - 8.4         | 1.5.0
-8.1               | 1.4.0
-7.8 - 8.0         | 1.3.2
-7.4 - 7.7         | 1.0.2
+| SonarQube Version | Plugin Version |
+|-------------------|----------------|
+| 24.12 (10.8)      | 1.23.0         |
+| 10.6 - 10.7       | 1.22.0         |
+| 10.5              | 1.20.0         |
+| 10.4              | 1.19.0         |
+| 9.9 (LTS)         | 1.14.0         |
+
+Older versions are listed on the Github release page but are no longer supported.
 
 # Features
 
@@ -71,6 +67,13 @@ __Note:__ If you're setting the `SONAR_WEB_JAVAADDITIONALOPTS` or `SONAR_CE_JAVA
 your container launch then you'll need to add the `javaagent` configuration to your overrides to match what's in the
 provided Dockerfile.
 
+## Docker Compose
+
+A `docker-compose.yml` file is provided.
+It uses the env variables available in `.env`.
+
+To use it, clone the repository, create a `.env` with `SONARQUBE_VERSION` defined, and execute `docker compose up`. Note that you need to have `docker compose` installed in your system and added to your PATH.
+
 ## Kubernetes with official Helm Chart
 
 When using
@@ -96,8 +99,9 @@ jvmCeOpts: "-javaagent:/opt/sonarqube/lib/common/sonarqube-community-branch-plug
 plugins:
   install:
     - https://github.com/mc1arke/sonarqube-community-branch-plugin/releases/download/${version}/sonarqube-community-branch-plugin-${version}.jar
-jvmOpts: "-javaagent:/opt/sonarqube/extensions/plugins/sonarqube-community-branch-plugin-${version}.jar=web"
-jvmCeOpts: "-javaagent:/opt/sonarqube/extensions/plugins/sonarqube-community-branch-plugin-${version}.jar=ce"
+sonarProperties:
+  sonar.web.javaAdditionalOpts: "-javaagent:/opt/sonarqube/extensions/plugins/sonarqube-community-branch-plugin-${version}.jar=web"
+  sonar.ce.javaAdditionalOpts: "-javaagent:/opt/sonarqube/extensions/plugins/sonarqube-community-branch-plugin-${version}.jar=ce"
 ```
 
 ### Issues with file path with persistency

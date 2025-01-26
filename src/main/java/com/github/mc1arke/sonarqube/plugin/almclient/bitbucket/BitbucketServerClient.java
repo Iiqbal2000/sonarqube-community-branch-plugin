@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2022 Mathias Åhsberg, Michael Clarke
+ * Copyright (C) 2020-2024 Mathias Åhsberg, Michael Clarke
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -20,6 +20,7 @@ package com.github.mc1arke.sonarqube.plugin.almclient.bitbucket;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.AnnotationUploadLimit;
+import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.BuildStatus;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.CodeInsightsAnnotation;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.CodeInsightsReport;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.DataValue;
@@ -37,8 +38,8 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
-import org.sonar.api.utils.log.Logger;
-import org.sonar.api.utils.log.Loggers;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -50,7 +51,7 @@ import java.util.stream.Collectors;
 import static java.lang.String.format;
 
 class BitbucketServerClient implements BitbucketClient {
-    private static final Logger LOGGER = Loggers.get(BitbucketServerClient.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(BitbucketServerClient.class);
     private static final MediaType APPLICATION_JSON_MEDIA_TYPE = MediaType.get("application/json");
     private static final String TITLE = "SonarQube";
     private static final String REPORTER = "SonarQube";
@@ -140,12 +141,16 @@ class BitbucketServerClient implements BitbucketClient {
     public boolean supportsCodeInsights() {
         try {
             ServerProperties server = getServerProperties();
-            LOGGER.debug(format("Your Bitbucket Server installation is version %s", server.getVersion()));
+            LOGGER.atDebug()
+                    .setMessage("Your Bitbucket Server installation is version {}")
+                    .addArgument(server::getVersion)
+                    .log();
             if (server.hasCodeInsightsApi()) {
                 return true;
             } else {
-                LOGGER.info("Bitbucket Server version is to old. %s is the minimum version that supports Code Insights",
-                        ServerProperties.CODE_INSIGHT_VERSION);
+                LOGGER.atInfo().setMessage("Bitbucket Server version is to old. {} is the minimum version that supports Code Insights")
+                        .addArgument(ServerProperties.CODE_INSIGHT_VERSION)
+                        .log();
             }
         } catch (IOException e) {
             LOGGER.error("Could not determine Bitbucket Server version", e);
@@ -172,6 +177,18 @@ class BitbucketServerClient implements BitbucketClient {
                     .readValue(Optional.ofNullable(response.body())
                             .orElseThrow(() -> new IllegalStateException("No response body from BitBucket"))
                             .string());
+        }
+    }
+
+    @Override
+    public void submitBuildStatus(String commitSha, BuildStatus buildStatus) throws IOException {
+        Request req = new Request.Builder()
+                .post(RequestBody.create(objectMapper.writeValueAsString(buildStatus), APPLICATION_JSON_MEDIA_TYPE))
+                .url(format("%s/rest/api/1.0/projects/%s/repos/%s/commits/%s/builds", config.getUrl(), config.getProject(), config.getRepository(), commitSha))
+                .build();
+
+        try (Response response = okHttpClient.newCall(req).execute()) {
+            validate(response);
         }
     }
 
